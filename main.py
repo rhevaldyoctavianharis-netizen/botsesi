@@ -15,7 +15,7 @@ import logging
 from telethon import TelegramClient
 
 from config import BOT_TOKEN, API_ID, API_HASH, ADMIN_CHANNEL, ADMIN_CHANNEL_URL
-from handlers import start, callbacks, admin
+from handlers import start, callbacks, admin, language
 from utils import settings
 from keep_alive import start_keep_alive
 
@@ -49,13 +49,31 @@ async def main():
 
     _migrate_legacy_env_channel()
 
-    bot = TelegramClient("bot_session", API_ID, API_HASH)
+    # ==== OPTIMASI CONCURRENCY (biar tidak antre saat banyak user) ====
+    # sequential_updates=False -> setiap update (pesan/klik tombol) dari
+    # Telegram di-dispatch sebagai task asyncio TERPISAH oleh Telethon,
+    # bukan diproses satu-satu secara berurutan. Digabung dengan pola
+    # asyncio.create_task() yang sudah dipakai untuk proses generate
+    # session & flow admin (lihat handlers/callbacks.py & handlers/admin.py),
+    # ini membuat banyak user bisa diproses BERSAMAAN dalam satu sesi bot,
+    # tanpa saling menunggu. Catatan: ini concurrency berbasis asyncio
+    # (single-thread, cooperative), bukan multi-threading OS — tapi untuk
+    # I/O-bound seperti bot Telegram, ini sudah maksimal secara wajar.
+    bot = TelegramClient(
+        "bot_session",
+        API_ID,
+        API_HASH,
+        sequential_updates=False,
+        connection_retries=5,
+        retry_delay=1,
+    )
     await bot.start(bot_token=BOT_TOKEN)
 
     # Daftarkan semua handler modular
     start.register(bot)
     callbacks.register(bot)
     admin.register(bot)
+    language.register(bot)
 
     # Web server kecil supaya Render.com (Web Service) mendeteksi port terbuka.
     # Tidak berpengaruh apa-apa saat dijalankan lokal / sebagai Background Worker.

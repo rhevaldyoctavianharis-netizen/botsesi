@@ -21,8 +21,10 @@ Render.com**.
   - Mode Maintenance (matikan sementara akses untuk non-admin)
   - Tambah/hapus admin tambahan
   - Statistik singkat bot
+- **Pilihan bahasa (183 kode ISO 639-1)** — tombol 🌐 Bahasa di menu utama, tersimpan permanen per user di `data/settings.json`, tidak reset walau bot restart/dibuka lagi kapan pun. Bahasa awal dideteksi otomatis dari `lang_code` Telegram user saat `/start` pertama kali.
 - Struktur kode modular: `config.py`, `handlers/`, `utils/`
 - Siap deploy ke **Render.com** (web server keep-alive bawaan + `render.yaml`)
+- Dioptimasi untuk **concurrency tinggi** (`sequential_updates=False` + background task per user) — banyak user bisa generate session/pakai panel admin bersamaan tanpa antre
 
 ## 📁 Struktur Folder
 
@@ -177,6 +179,23 @@ yang non-blocking, bot tetap bisa merespon `/start` atau tombol dari user
 lain walau ada user lain yang sedang menunggu input OTP. Alur percakapan
 di panel admin (tambah channel, edit pesan, broadcast, dll) memakai pola
 yang sama supaya bot tetap responsif selagi menunggu balasan admin.
+
+## 🌐 Fitur Bahasa
+
+- Tombol **🌐 Bahasa** di menu utama membuka daftar 183 bahasa (kode ISO 639-1) dengan pagination (10 bahasa/halaman).
+- Begitu user memilih, preferensinya disimpan ke `data/settings.json` (`user_languages: {"<user_id>": "<kode>"}`) lewat `utils/settings.py` — **permanen**, tidak reset saat bot restart maupun saat user membuka bot lagi kapan pun.
+- Saat `/start` pertama kali, bot otomatis mendeteksi bahasa dari `lang_code` akun Telegram user sebagai nilai awal (kalau valid), supaya user tidak perlu set manual dari awal.
+- **Batasan jujur**: menyimpan preferensi bahasa jalan penuh untuk ke-183 bahasa, tapi **terjemahan penuh isi bot** (welcome, about, semua tombol) baru tersedia untuk ~20 bahasa populer di `utils/translations.py` (id, en, ar, es, fr, de, pt, ru, zh, hi, ja, ko, tr, vi, th, bn, ur, fa, nl, it, ms). Bahasa lain tetap tersimpan benar, hanya pesan konfirmasinya fallback ke format netral sampai ditambahkan manual ke `utils/translations.py`. Menerjemahkan seluruh isi bot secara akurat ke 183 bahasa sekaligus bukan sesuatu yang saya kerjakan asal-asalan — silakan tambah bertahap sesuai kebutuhan userbase kamu.
+
+## ⚡ Concurrency / Anti-Antre
+
+- `main.py` membuat `TelegramClient(..., sequential_updates=False)` — Telethon men-dispatch setiap update (pesan/klik tombol) sebagai task `asyncio` terpisah, bukan diproses satu per satu secara berurutan.
+- Proses yang butuh menunggu balasan user (generate session, alur admin: tambah channel, edit pesan, broadcast, tambah admin) sudah dibungkus `asyncio.create_task(...)` sejak awal — jadi selagi User A sedang mengetik OTP, User B tetap bisa pakai bot secara instan di chat terpisah.
+- **Catatan teknis penting**: ini concurrency berbasis **asyncio single-thread** (cooperative multitasking), BUKAN multi-threading OS sungguhan. Untuk bot I/O-bound seperti ini (mayoritas waktu menunggu jaringan Telegram), asyncio sudah merupakan pendekatan yang tepat dan efisien — menambah OS thread sungguhan justru tidak akan membuat bot Telethon lebih cepat, karena library ini memang didesain async dari awal, bukan thread-safe.
+
+## 🐛 Perbaikan Bug (v2)
+
+- Ditemukan & diperbaiki: `ValueError: No message was sent previously` yang muncul saat generate session maupun di beberapa alur admin (tambah channel, edit pesan, broadcast, tambah admin). Penyebabnya: prompt pertanyaan dikirim lewat `bot.send_message()` langsung, padahal `conv.get_response()` butuh pesan yang dikirim lewat objek `conv` (`conv.send_message()`) supaya Telethon tahu balasan mana yang sedang ditunggu. Semua titik yang terdampak sudah diperbaiki.
 
 ## ⚠️ Catatan Keamanan
 

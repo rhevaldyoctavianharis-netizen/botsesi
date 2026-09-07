@@ -1,8 +1,12 @@
 """
-handlers/start.py
+handlers/start.py  (DIUBAH — translate nyata + tombol dashboard admin)
 Menangani /start, force-join check (multi channel, live dari admin),
-mode maintenance, dan menu "Tentang Bot". Teks welcome/about bisa
-diedit admin lewat /admin dan langsung berlaku tanpa restart bot.
+mode maintenance, dan menu "Tentang Bot". SEMUA teks & tombol di sini
+sekarang benar-benar diterjemahkan ke bahasa pilihan user (bukan cuma
+pesan konfirmasi seperti sebelumnya) lewat utils/i18n.py.
+
+Kalau user yang /start adalah admin, menu utama otomatis menampilkan
+tombol tambahan "🛠️ Dashboard Admin".
 """
 
 from telethon import events
@@ -11,8 +15,11 @@ from config import OWNER_NAME, OWNER_USERNAME, BANNER_PATH
 from utils.force_join import get_unjoined_channels
 from utils import settings
 from utils.languages import LANGUAGE_MAP
+from utils.i18n import tr_block
 from utils.keyboards import join_channel_kb, main_menu_kb, back_to_menu_kb
 
+# Semua teks di bawah ditulis dalam Bahasa Indonesia sebagai SUMBER —
+# ini yang diterjemahkan on-the-fly ke bahasa pilihan user lewat tr_block().
 DEFAULT_WELCOME_TEXT = f"""
 👋 **Halo, {{name}}!**
 
@@ -86,50 +93,60 @@ def register(bot):
             detected = getattr(user, "lang_code", None)
             settings.set_user_language(user.id, detected if detected in LANGUAGE_MAP else "id")
 
-        if settings.maintenance_mode() and not settings.is_admin(user.id):
-            await event.respond(MAINTENANCE_TEXT)
+        lang = settings.get_user_language(user.id)
+        is_admin = settings.is_admin(user.id)
+
+        if settings.maintenance_mode() and not is_admin:
+            text = await tr_block(lang, MAINTENANCE_TEXT)
+            await event.respond(text)
             return
 
         unjoined = await get_unjoined_channels(bot, user.id)
         if unjoined:
-            await event.respond(JOIN_REQUIRED_TEXT, buttons=join_channel_kb(unjoined))
+            text = await tr_block(lang, JOIN_REQUIRED_TEXT)
+            await event.respond(text, buttons=await join_channel_kb(unjoined, lang))
             return
 
-        await _send_welcome(event, name)
+        await _send_welcome(event, name, lang, is_admin)
 
     @bot.on(events.CallbackQuery(pattern=b"check_join"))
     async def check_join_cb(event):
         user = await event.get_sender()
+        lang = settings.get_user_language(user.id)
+        is_admin = settings.is_admin(user.id)
         unjoined = await get_unjoined_channels(bot, user.id)
         if not unjoined:
-            await event.answer("✅ Verifikasi berhasil!")
+            await event.answer("✅")
             name = user.first_name or "Kamu"
-            text = _render(settings.welcome_text(DEFAULT_WELCOME_TEXT), name)
-            await event.edit(text, buttons=main_menu_kb(), link_preview=False)
+            text = await tr_block(lang, _render(settings.welcome_text(DEFAULT_WELCOME_TEXT), name))
+            await event.edit(text, buttons=await main_menu_kb(lang, is_admin), link_preview=False)
         else:
-            await event.answer("❌ Kamu masih belum join semua channel/grup!", alert=True)
-            await event.edit(JOIN_REQUIRED_TEXT, buttons=join_channel_kb(unjoined))
+            alert = await tr_block(lang, "❌ Kamu masih belum join semua channel/grup!")
+            await event.answer(alert, alert=True)
+            text = await tr_block(lang, JOIN_REQUIRED_TEXT)
+            await event.edit(text, buttons=await join_channel_kb(unjoined, lang))
 
     @bot.on(events.CallbackQuery(pattern=b"menu:back"))
     async def back_cb(event):
         user = await event.get_sender()
+        lang = settings.get_user_language(user.id)
+        is_admin = settings.is_admin(user.id)
         name = user.first_name or "Kamu"
-        text = _render(settings.welcome_text(DEFAULT_WELCOME_TEXT), name)
-        await event.edit(text, buttons=main_menu_kb(), link_preview=False)
+        text = await tr_block(lang, _render(settings.welcome_text(DEFAULT_WELCOME_TEXT), name))
+        await event.edit(text, buttons=await main_menu_kb(lang, is_admin), link_preview=False)
 
     @bot.on(events.CallbackQuery(pattern=b"menu:about"))
     async def about_cb(event):
-        await event.edit(
-            settings.about_text(DEFAULT_ABOUT_TEXT),
-            buttons=back_to_menu_kb(),
-            link_preview=False,
-        )
+        lang = settings.get_user_language(event.sender_id)
+        text = await tr_block(lang, settings.about_text(DEFAULT_ABOUT_TEXT))
+        await event.edit(text, buttons=await back_to_menu_kb(lang), link_preview=False)
 
 
-async def _send_welcome(event, name):
-    text = _render(settings.welcome_text(DEFAULT_WELCOME_TEXT), name)
+async def _send_welcome(event, name: str, lang: str, is_admin: bool):
+    text = await tr_block(lang, _render(settings.welcome_text(DEFAULT_WELCOME_TEXT), name))
+    buttons = await main_menu_kb(lang, is_admin)
     try:
-        await event.respond(file=BANNER_PATH, message=text, buttons=main_menu_kb())
+        await event.respond(file=BANNER_PATH, message=text, buttons=buttons)
     except Exception:
         # fallback kalau banner.png tidak ditemukan / gagal upload
-        await event.respond(text, buttons=main_menu_kb(), link_preview=False)
+        await event.respond(text, buttons=buttons, link_preview=False)

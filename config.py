@@ -66,6 +66,22 @@ BANNER_PATH = os.path.join(os.path.dirname(__file__), "assets", "banner.png")
 # akan bind ke port ini supaya Render mendeteksi service sebagai "live".
 PORT = _get_int("PORT", 8080)
 
+# ==== Self-Ping (anti-sleep untuk Render Free Plan) ====
+# Render Free Web Service otomatis "tidur" setelah 15 menit TANPA ada
+# HTTP request masuk. Supaya bot tidak ikut mati (proses Telethon-nya
+# jalan di container yang sama), keep_alive.py akan mem-ping URL publik
+# service ini sendiri secara berkala -- ini technically genuine inbound
+# request lewat internet (bukan localhost), jadi dihitung sebagai
+# "activity" oleh Render.
+#
+# RENDER_EXTERNAL_URL diisi OTOMATIS oleh Render untuk setiap Web Service
+# (tidak perlu di-set manual). Kalau kosong (jalan di VPS/lokal), fitur
+# ini otomatis nonaktif -- tidak ada gunanya self-ping saat tidak ada
+# batas waktu idle.
+_render_url = os.getenv("RENDER_EXTERNAL_URL", "").rstrip("/")
+SELF_PING_URL = os.getenv("SELF_PING_URL") or (f"{_render_url}/health" if _render_url else "")
+SELF_PING_INTERVAL = _get_int("SELF_PING_INTERVAL", 600)  # detik (default 10 menit, di bawah batas 15 menit Render)
+
 # Lokasi file penyimpanan pengaturan live (bisa diubah admin lewat /admin
 # tanpa restart bot). Lihat utils/db.py & utils/settings.py.
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")

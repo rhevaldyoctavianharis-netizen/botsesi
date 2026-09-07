@@ -1,0 +1,43 @@
+# Blueprint deploy otomatis untuk Render.com.
+# Cara pakai: push repo ini ke GitHub, lalu di dashboard Render pilih
+# "New +" -> "Blueprint" dan arahkan ke repo ini. Render akan baca file
+# ini otomatis dan membuatkan service-nya.
+#
+# Setelah service dibuat, isi Environment Variables yang bertanda
+# "sync: false" lewat dashboard Render (Settings -> Environment),
+# karena nilainya rahasia dan tidak disimpan di file ini.
+services:
+  - type: web
+    name: telegram-session-bot
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python main.py
+    healthCheckPath: /health
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: API_ID
+        sync: false
+      - key: API_HASH
+        sync: false
+      - key: SESSION_API_ID
+        sync: false
+      - key: SESSION_API_HASH
+        sync: false
+      - key: ADMIN_IDS
+        sync: false
+      - key: ADMIN_CHANNEL
+        sync: false
+      - key: ADMIN_CHANNEL_URL
+        sync: false
+      - key: OWNER_NAME
+        sync: false
+      - key: OWNER_USERNAME
+        sync: false
+      - key: FORCE_JOIN
+        value: "true"
+      - key: CONVERSATION_TIMEOUT
+        value: "300"
+      - key: PYTHONUNBUFFERED
+        value: "1"

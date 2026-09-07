@@ -1,0 +1,15 @@
+# Rahasia & environment
+.env
+
+# Session file Telethon (berisi kredensial login, JANGAN commit)
+*.session
+*.session-journal
+
+# Data live yang di-generate saat bot jalan (pengaturan admin, daftar user)
+data/settings.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/

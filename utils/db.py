@@ -30,6 +30,8 @@ _DEFAULT = {
     "about_text": None,
     "extra_admin_ids": [],
     "users": [],
+    # user_id (str) -> kode bahasa ISO 639-1, contoh: {"8588390695": "en"}
+    "user_languages": {},
 }
 
 

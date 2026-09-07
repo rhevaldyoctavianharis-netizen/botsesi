@@ -143,3 +143,22 @@ def about_text(default: str) -> str:
 
 def set_about_text(text) -> None:
     db.set("about_text", text)
+
+
+# ---------------------------------------------------------------------
+# BAHASA PER-USER — persisten, tidak reset walau bot restart / user
+# buka bot lagi kapan pun. Disimpan sebagai {"<user_id>": "<kode>"}.
+# ---------------------------------------------------------------------
+def has_user_language(user_id: int) -> bool:
+    return str(user_id) in db.get("user_languages", {})
+
+
+def get_user_language(user_id: int, default: str = "id") -> str:
+    return db.get("user_languages", {}).get(str(user_id), default)
+
+
+def set_user_language(user_id: int, code: str) -> None:
+    def _mut(data):
+        data.setdefault("user_languages", {})[str(user_id)] = code
+
+    db.update(_mut)

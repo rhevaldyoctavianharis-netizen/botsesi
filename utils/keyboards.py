@@ -8,6 +8,7 @@ nyentuh logic handler.
 from telethon import Button
 from config import OWNER_USERNAME
 from utils import settings
+from utils.languages import LANGUAGES
 
 
 # =======================================================================
@@ -29,8 +30,9 @@ def main_menu_kb():
         [Button.inline("🔑 Generate Session Now", data="menu:generate")],
         [
             Button.inline("ℹ️ Tentang Bot", data="menu:about"),
-            Button.url("👤 Owner", f"https://t.me/{OWNER_USERNAME}"),
+            Button.inline("🌐 Bahasa", data="menu:lang"),
         ],
+        [Button.url("👤 Owner", f"https://t.me/{OWNER_USERNAME}")],
     ]
 
 
@@ -51,6 +53,33 @@ def cancel_kb():
 
 def back_to_menu_kb():
     return [[Button.inline("⬅️ Menu Utama", data="menu:back")]]
+
+
+def language_menu_kb(page: int = 0, per_page: int = 10):
+    """Keyboard pilihan bahasa dengan pagination (±180 bahasa, 10/halaman)."""
+    total_pages = (len(LANGUAGES) - 1) // per_page + 1
+    page = max(0, min(page, total_pages - 1))
+    start = page * per_page
+    chunk = LANGUAGES[start:start + per_page]
+
+    rows = []
+    for i in range(0, len(chunk), 2):
+        row = [
+            Button.inline(name, data=f"lang:set:{code}")
+            for code, name in chunk[i:i + 2]
+        ]
+        rows.append(row)
+
+    nav = []
+    if page > 0:
+        nav.append(Button.inline("⬅️ Prev", data=f"lang:page:{page - 1}"))
+    nav.append(Button.inline(f"{page + 1}/{total_pages}", data="lang:noop"))
+    if page < total_pages - 1:
+        nav.append(Button.inline("Next ➡️", data=f"lang:page:{page + 1}"))
+    rows.append(nav)
+
+    rows.append([Button.inline("⬅️ Menu Utama", data="menu:back")])
+    return rows
 
 
 # =======================================================================

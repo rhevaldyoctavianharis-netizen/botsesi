@@ -10,6 +10,7 @@ from telethon import events
 from config import OWNER_NAME, OWNER_USERNAME, BANNER_PATH
 from utils.force_join import get_unjoined_channels
 from utils import settings
+from utils.languages import LANGUAGE_MAP
 from utils.keyboards import join_channel_kb, main_menu_kb, back_to_menu_kb
 
 DEFAULT_WELCOME_TEXT = f"""
@@ -76,6 +77,14 @@ def register(bot):
         user = await event.get_sender()
         name = user.first_name or "Kamu"
         settings.track_user(user.id)
+
+        # Deteksi bahasa HANYA sekali (saat pertama kali /start). Setelah
+        # itu preferensi user tersimpan permanen dan TIDAK akan tertimpa
+        # lagi walau lang_code Telegram-nya berubah atau bot di-restart —
+        # user hanya bisa menggantinya lewat menu 🌐 Bahasa.
+        if not settings.has_user_language(user.id):
+            detected = getattr(user, "lang_code", None)
+            settings.set_user_language(user.id, detected if detected in LANGUAGE_MAP else "id")
 
         if settings.maintenance_mode() and not settings.is_admin(user.id):
             await event.respond(MAINTENANCE_TEXT)

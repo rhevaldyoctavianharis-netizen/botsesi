@@ -166,8 +166,10 @@ async def _flow_add_channel(bot, event):
     chat_id = event.chat_id
     try:
         async with bot.conversation(chat_id, timeout=CONVERSATION_TIMEOUT) as conv:
-            await bot.send_message(
-                chat_id,
+            # Kirim lewat conv.send_message() (bukan bot.send_message())
+            # supaya conv.get_response() tahu pesan mana yang ditunggu
+            # balasannya. Lihat catatan sama di handlers/session_gen.py.
+            await conv.send_message(
                 "📢 Kirim **username atau link** channel/grup yang wajib di-join.\n"
                 "Contoh: `@namachannel` atau `https://t.me/namachannel`\n\n"
                 "Ketik /cancel untuk batal.",
@@ -188,8 +190,7 @@ async def _flow_add_channel(bot, event):
                 await bot.send_message(chat_id, "❌ Format tidak dikenali. Silakan ulangi dari menu Force Join.")
                 return
 
-            await bot.send_message(
-                chat_id,
+            await conv.send_message(
                 "🏷️ Kirim label/nama tampilan untuk channel ini "
                 "(atau ketik `-` untuk pakai default).",
             )
@@ -213,8 +214,7 @@ async def _flow_edit_text(bot, event, kind: str):
     label = "Welcome" if kind == "welcome" else "About"
     try:
         async with bot.conversation(chat_id, timeout=CONVERSATION_TIMEOUT) as conv:
-            await bot.send_message(
-                chat_id,
+            await conv.send_message(
                 f"✏️ Kirim teks baru untuk pesan **{label}** (mendukung Markdown).\n"
                 "Tips: gunakan `{name}` di pesan Welcome untuk menyisipkan nama user.\n\n"
                 "Ketik /cancel untuk batal.",
@@ -238,8 +238,7 @@ async def _flow_broadcast(bot, event):
     chat_id = event.chat_id
     try:
         async with bot.conversation(chat_id, timeout=CONVERSATION_TIMEOUT) as conv:
-            await bot.send_message(
-                chat_id,
+            await conv.send_message(
                 "📣 Kirim pesan teks yang ingin di-broadcast ke semua user bot.\n\n"
                 "Ketik /cancel untuk batal.",
             )
@@ -276,8 +275,7 @@ async def _flow_add_admin(bot, event):
     chat_id = event.chat_id
     try:
         async with bot.conversation(chat_id, timeout=CONVERSATION_TIMEOUT) as conv:
-            await bot.send_message(
-                chat_id,
+            await conv.send_message(
                 "👮 Kirim **user ID** Telegram (angka) yang ingin dijadikan admin.\n"
                 "_Tips: user tersebut bisa cek ID-nya lewat bot seperti @userinfobot._\n\n"
                 "Ketik /cancel untuk batal.",

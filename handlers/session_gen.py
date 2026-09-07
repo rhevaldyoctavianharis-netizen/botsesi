@@ -52,7 +52,13 @@ async def run_generate_session(bot, event, library: str):
 
 
 async def _ask(bot, conv, text, buttons=None):
-    await bot.send_message(conv.chat_id, text, buttons=buttons or cancel_kb())
+    # PENTING: harus lewat conv.send_message() (bukan bot.send_message()
+    # langsung), karena conv.get_response() menunggu balasan atas pesan
+    # TERAKHIR yang dikirim melalui objek `conv` itu sendiri. Kalau kita
+    # kirim lewat bot.send_message() biasa, Telethon tidak tahu pesan mana
+    # yang harus ditunggu balasannya dan melempar
+    # `ValueError: No message was sent previously`.
+    await conv.send_message(text, buttons=buttons or cancel_kb())
     resp = await conv.get_response(timeout=CONVERSATION_TIMEOUT)
     if resp.raw_text.strip().lower() in CANCEL_WORDS:
         raise asyncio.CancelledError()

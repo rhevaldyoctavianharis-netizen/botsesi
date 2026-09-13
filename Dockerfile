@@ -11,9 +11,11 @@
 
 FROM python:3.11-slim
 
-# ---- Install Node.js 20.x LTS (dibutuhkan Baileys) ----
+# ---- Install Node.js 20.x LTS (dibutuhkan Baileys) + git ----
+# git dibutuhkan karena beberapa dependency Baileys diambil npm
+# langsung dari repo git (bukan cuma dari npm registry biasa).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        curl ca-certificates gnupg \
+        curl ca-certificates gnupg git \
     && curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
     && apt-get install -y --no-install-recommends nodejs \
     && rm -rf /var/lib/apt/lists/*

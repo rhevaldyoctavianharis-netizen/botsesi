@@ -109,6 +109,10 @@ def pyrogram_enabled() -> bool:
     return db.get("pyrogram_enabled", True)
 
 
+def whatsapp_enabled() -> bool:
+    return db.get("whatsapp_enabled", True)
+
+
 def set_feature(name: str, value: bool) -> None:
     db.set(name, value)
 

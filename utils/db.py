@@ -25,6 +25,7 @@ _DEFAULT = {
     "force_join_channels": [],
     "telethon_enabled": True,
     "pyrogram_enabled": True,
+    "whatsapp_enabled": True,
     "maintenance_mode": False,
     "welcome_text": None,
     "about_text": None,

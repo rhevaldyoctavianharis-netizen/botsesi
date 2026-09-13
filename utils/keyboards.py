@@ -41,12 +41,14 @@ async def main_menu_kb(lang: str = "id", is_admin: bool = False):
     "🛠️ Dashboard Admin" HANYA muncul kalau `is_admin=True`."""
     labels = await tr_many(lang, [
         "🔑 Generate Session Now",
+        "📲 Generate WhatsApp Session",
         "ℹ️ Tentang Bot",
         "🌐 Bahasa",
     ])
-    gen, about, bahasa = labels
+    gen, wa, about, bahasa = labels
     rows = [
         [Button.inline(gen, data="menu:generate")],
+        [Button.inline(wa, data="menu:whatsapp")],
         [Button.inline(about, data="menu:about"), Button.inline(bahasa, data="menu:lang")],
         [Button.url("👤 Owner", f"https://t.me/{OWNER_USERNAME}")],
     ]
@@ -117,15 +119,16 @@ async def admin_main_kb(lang: str = "id"):
     maint_src = ("🟢 Matikan" if maint_on else "🛑 Aktifkan") + " Mode Maintenance"
     labels = await tr_many(lang, [
         "📊 Statistik", "📢 Force Join", "🔧 Fitur Generate", "📝 Edit Pesan",
-        "📣 Broadcast", maint_src, "👮 Kelola Admin", "❌ Tutup",
+        "📣 Broadcast", "🖥️ System Info", maint_src, "👮 Kelola Admin", "❌ Tutup",
     ])
-    stats, fj, feat, msg, bc, maint, admins, close = labels
+    stats, fj, feat, msg, bc, sysinfo, maint, admins, close = labels
     return [
         [Button.inline(stats, data="adm:stats")],
         [Button.inline(fj, data="adm:fj")],
         [Button.inline(feat, data="adm:feature")],
         [Button.inline(msg, data="adm:msg")],
         [Button.inline(bc, data="adm:broadcast")],
+        [Button.inline(sysinfo, data="adm:sysinfo")],
         [Button.inline(maint, data="adm:maint:toggle")],
         [Button.inline(admins, data="adm:admins")],
         [Button.inline(close, data="adm:close")],
@@ -151,14 +154,17 @@ async def admin_fj_kb(lang: str = "id"):
 async def admin_feature_kb(lang: str = "id"):
     t = settings.telethon_enabled()
     p = settings.pyrogram_enabled()
-    t_label, p_label, back_label = await tr_many(lang, [
+    w = settings.whatsapp_enabled()
+    t_label, p_label, w_label, back_label = await tr_many(lang, [
         ("✅" if t else "❌") + " Telethon — klik untuk toggle",
         ("✅" if p else "❌") + " Pyrogram — klik untuk toggle",
+        ("✅" if w else "❌") + " WhatsApp — klik untuk toggle",
         "⬅️ Kembali",
     ])
     return [
         [Button.inline(t_label, data="adm:feat:telethon")],
         [Button.inline(p_label, data="adm:feat:pyrogram")],
+        [Button.inline(w_label, data="adm:feat:whatsapp")],
         [Button.inline(back_label, data="adm:back")],
     ]
 

@@ -33,6 +33,7 @@ from telethon import events
 from config import CONVERSATION_TIMEOUT
 from utils import settings, keyboards as kb
 from utils.i18n import tr_block
+from utils.sysinfo import get_system_info_text
 
 CANCEL_WORDS = {"/cancel", "batal", "cancel"}
 
@@ -66,6 +67,10 @@ def register(bot):
         elif data == "adm:stats":
             await event.edit(await _stats_text(lang), buttons=await kb.admin_main_kb(lang))
 
+        elif data == "adm:sysinfo":
+            # SENGAJA tidak lewat tr_block -- lihat catatan di utils/sysinfo.py
+            await event.edit(get_system_info_text(), buttons=await kb.admin_main_kb(lang))
+
         elif data == "adm:fj":
             await event.edit(await _fj_text(lang), buttons=await kb.admin_fj_kb(lang))
 
@@ -95,6 +100,10 @@ def register(bot):
 
         elif data == "adm:feat:pyrogram":
             settings.set_feature("pyrogram_enabled", not settings.pyrogram_enabled())
+            await event.edit(await tr_block(lang, "🔧 **Fitur Generate**"), buttons=await kb.admin_feature_kb(lang))
+
+        elif data == "adm:feat:whatsapp":
+            settings.set_feature("whatsapp_enabled", not settings.whatsapp_enabled())
             await event.edit(await tr_block(lang, "🔧 **Fitur Generate**"), buttons=await kb.admin_feature_kb(lang))
 
         elif data == "adm:msg":

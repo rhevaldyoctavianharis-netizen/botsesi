@@ -15,6 +15,7 @@ from utils.force_join import get_unjoined_channels
 from utils import state, settings
 from utils.i18n import tr_block
 from handlers.session_gen import run_generate_session
+from handlers.whatsapp_gen import run_generate_whatsapp
 
 CHOOSE_LIB_TEXT = """
 🔑 **Generate Session**
@@ -78,6 +79,36 @@ def register(bot):
             await event.edit(text, buttons=await back_to_menu_kb(lang))
         else:
             await event.answer(await tr_block(lang, "Tidak ada proses yang berjalan."))
+
+    @bot.on(events.CallbackQuery(pattern=b"menu:whatsapp"))
+    async def whatsapp_menu_cb(event):
+        user = await event.get_sender()
+        lang = settings.get_user_language(user.id)
+
+        if settings.maintenance_mode() and not settings.is_admin(user.id):
+            await event.answer(await tr_block(lang, "🛠️ Bot sedang maintenance, coba lagi nanti."), alert=True)
+            return
+
+        unjoined = await get_unjoined_channels(bot, user.id)
+        if unjoined:
+            await event.answer(await tr_block(lang, "❌ Kamu wajib join channel/grup dulu!"), alert=True)
+            text = await tr_block(lang, "🔒 Kamu belum join semua channel/grup yang diwajibkan.")
+            await event.edit(text, buttons=await join_channel_kb(unjoined, lang))
+            return
+
+        if not settings.whatsapp_enabled():
+            await event.answer(await tr_block(lang, "❌ Fitur WhatsApp sedang dinonaktifkan admin."), alert=True)
+            return
+
+        if state.is_busy(user.id):
+            await event.answer(await tr_block(lang, "⚠️ Kamu masih punya proses generate yang berjalan!"), alert=True)
+            return
+
+        starting = await tr_block(lang, "Memulai proses tautkan WhatsApp...")
+        await event.answer(starting)
+
+        task = asyncio.create_task(run_generate_whatsapp(bot, event, lang))
+        state.register_task(user.id, task)
 
 
 async def _dispatch_generate(bot, event, library: str, lang: str):

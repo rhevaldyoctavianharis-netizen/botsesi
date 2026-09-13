@@ -7,9 +7,19 @@
 
 # Data live yang di-generate saat bot jalan (pengaturan admin, daftar user)
 data/settings.json
+data/translation_cache.json
+
+# Folder sementara session WhatsApp (kredensial sensitif, dihapus otomatis
+# oleh bot setelah tiap sesi selesai -- ini cuma jaga-jaga tambahan)
+data/wa_sessions/*
+!data/wa_sessions/.gitkeep
 
 # Python
 __pycache__/
 *.pyc
 .venv/
 venv/
+
+# Node.js (whatsapp/ -- Baileys)
+whatsapp/node_modules/
+whatsapp/package-lock.json

@@ -1,18 +1,25 @@
-# Blueprint deploy otomatis untuk Render.com.
+# Blueprint deploy otomatis untuk Render.com.  (DIUBAH -- env: docker)
 # Cara pakai: push repo ini ke GitHub, lalu di dashboard Render pilih
 # "New +" -> "Blueprint" dan arahkan ke repo ini. Render akan baca file
-# ini otomatis dan membuatkan service-nya.
+# ini otomatis, mendeteksi Dockerfile, dan membuatkan service-nya.
+#
+# CATATAN PENTING: service ini sekarang pakai `env: docker` (bukan
+# `env: python` seperti sebelumnya) supaya Node.js (untuk fitur
+# WhatsApp/Baileys) ikut ter-install di image. Render TIDAK bisa
+# mengubah tipe runtime service yang sudah ada dari python -> docker
+# secara in-place -- kalau kamu upgrade dari versi sebelumnya, buat
+# service BARU dari Blueprint ini, lalu hapus service lama setelah
+# yang baru terbukti jalan.
 #
 # Setelah service dibuat, isi Environment Variables yang bertanda
 # "sync: false" lewat dashboard Render (Settings -> Environment),
 # karena nilainya rahasia dan tidak disimpan di file ini.
 services:
   - type: web
-    name: telegram-session-bot
-    env: python
+    name: botsesi
+    env: docker
+    dockerfilePath: ./Dockerfile
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
     healthCheckPath: /health
     envVars:
       - key: BOT_TOKEN

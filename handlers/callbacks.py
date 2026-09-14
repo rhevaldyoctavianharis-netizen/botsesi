@@ -125,6 +125,14 @@ def register(bot):
         starting = await tr_block(lang, "Memulai proses tautkan WhatsApp...")
         await event.answer(starting)
 
+        # Hapus pesan pilihan format begitu dipilih -- anti-spam, sisa
+        # alur (tanya nomor dst) dikirim sebagai pesan baru oleh
+        # run_generate_whatsapp().
+        try:
+            await event.delete()
+        except Exception:
+            pass
+
         task = asyncio.create_task(run_generate_whatsapp(bot, event, lang, fmt))
         state.register_task(user.id, task)
 

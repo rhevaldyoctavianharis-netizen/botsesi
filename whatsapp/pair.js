@@ -1,31 +1,44 @@
 /**
- * whatsapp/pair.js  (BARU)
+ * whatsapp/pair.js  (DIUBAH — perbaikan bug "gagal tautkan perangkat")
  * Dipanggil sebagai SUBPROCESS PENDEK oleh handlers/whatsapp_gen.py --
  * SATU proses Node terpisah per user yang sedang generate session
  * WhatsApp, supaya banyak user bisa link WhatsApp secara BERSAMAAN
- * tanpa saling ganggu (folder sesi per proses juga terpisah).
+ * tanpa saling ganggu.
  *
- * Ini BUKAN servis Node.js yang jalan terus-menerus -- proses ini exit
- * begitu pairing selesai (berhasil/gagal/timeout), persis seperti
- * subprocess CLI biasa.
+ * PERBAIKAN dari versi sebelumnya (penyebab paling umum pairing gagal
+ * di Baileys):
+ * 1. Tidak fetch versi WhatsApp Web terbaru -> pakai versi bawaan
+ *    library yang bisa basi -> koneksi ditolak server WhatsApp.
+ *    Sekarang pakai fetchLatestBaileysVersion().
+ * 2. Minta pairing code LANGSUNG setelah socket dibuat, padahal koneksi
+ *    WebSocket-nya belum tentu sudah settle -> sering gagal dengan
+ *    error "Connection Closed" / "Precondition Required". Sekarang ada
+ *    jeda singkat sebelum requestPairingCode().
+ * 3. Browser descriptor custom diganti pakai helper resmi Browsers.ubuntu()
+ *    yang lebih dikenali server WhatsApp.
  *
- * PROTOKOL KOMUNIKASI lewat STDOUT (satu baris = satu event), dibaca
- * Python baris demi baris:
+ * PROTOKOL KOMUNIKASI lewat STDOUT (satu baris = satu event):
  *   PAIRING_CODE:123456   -> kode pairing 6 digit, teruskan ke user
- *   CONNECTED              -> berhasil link, file kredensial siap di
- *                             folder sesi yang diberikan lewat argumen
+ *   CONNECTED              -> berhasil link, file kredensial siap
  *   ERROR:<pesan singkat>   -> gagal, sertakan alasannya
  *   TIMEOUT                 -> tidak ada respons dalam batas waktu
  *
  * Argumen CLI: node pair.js <nomor_telepon> <folder_sesi>
  */
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require("@whiskeysockets/baileys");
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    fetchLatestBaileysVersion,
+    Browsers,
+    DisconnectReason,
+} = require("@whiskeysockets/baileys");
 const pino = require("pino");
 
 const phoneNumber = process.argv[2];
 const sessionDir = process.argv[3];
 const TIMEOUT_MS = 120000; // 2 menit menunggu user memasukkan kode di HP-nya
+const PRE_REQUEST_DELAY_MS = 3000; // jeda supaya koneksi WS settle dulu
 
 if (!phoneNumber || !sessionDir) {
     console.log("ERROR:Argumen tidak lengkap (butuh nomor telepon & folder sesi).");
@@ -41,14 +54,20 @@ function finish(line, exitCode) {
     process.exit(exitCode);
 }
 
+function delay(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 async function main() {
     const { state, saveCreds } = await useMultiFileAuthState(sessionDir);
+    const { version } = await fetchLatestBaileysVersion();
 
     const sock = makeWASocket({
+        version,
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: "silent" }),
-        browser: ["Botsesi", "Chrome", "1.0.0"],
+        browser: Browsers.ubuntu("Chrome"),
     });
 
     sock.ev.on("creds.update", saveCreds);
@@ -59,6 +78,7 @@ async function main() {
 
     // Minta pairing code HANYA kalau device ini belum pernah register.
     if (!sock.authState.creds.registered) {
+        await delay(PRE_REQUEST_DELAY_MS);
         try {
             const cleanNumber = phoneNumber.replace(/[^0-9]/g, "");
             const code = await sock.requestPairingCode(cleanNumber);

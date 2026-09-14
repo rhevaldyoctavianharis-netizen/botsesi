@@ -16,7 +16,7 @@ from telethon import TelegramClient
 
 from config import BOT_TOKEN, API_ID, API_HASH, ADMIN_CHANNEL, ADMIN_CHANNEL_URL
 from handlers import start, callbacks, admin, language
-from utils import settings
+from utils import settings, runtime_info  # noqa: F401 -- impor sedini mungkin biar START_TIME akurat
 from keep_alive import start_keep_alive
 
 logging.basicConfig(

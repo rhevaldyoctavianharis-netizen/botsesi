@@ -10,7 +10,7 @@ import asyncio
 
 from telethon import events
 
-from utils.keyboards import choose_library_kb, back_to_menu_kb, join_channel_kb, whatsapp_format_kb
+from utils.keyboards import choose_library_kb, back_to_menu_kb, join_channel_kb, whatsapp_format_kb, whatsapp_method_kb
 from utils.force_join import get_unjoined_channels
 from utils import state, settings
 from utils.i18n import tr_block
@@ -122,18 +122,50 @@ def register(bot):
 
         fmt = event.data.decode().split(":")[-1]  # "zip" atau "json"
 
+        if not settings.wa_pairing_enabled() and not settings.wa_qr_enabled():
+            await event.answer(
+                await tr_block(lang, "❌ Semua metode tautkan WhatsApp sedang dinonaktifkan admin."),
+                alert=True,
+            )
+            return
+
+        text = await tr_block(lang, "📲 **Generate Session WhatsApp**\n\nPilih metode menautkan perangkat:")
+        await event.edit(text, buttons=await whatsapp_method_kb(lang, fmt))
+
+    @bot.on(events.CallbackQuery(pattern=b"wa:method:"))
+    async def wa_method_cb(event):
+        user = await event.get_sender()
+        lang = settings.get_user_language(user.id)
+
+        if settings.maintenance_mode() and not settings.is_admin(user.id):
+            await event.answer(await tr_block(lang, "🛠️ Bot sedang maintenance, coba lagi nanti."), alert=True)
+            return
+
+        if state.is_busy(user.id):
+            await event.answer(await tr_block(lang, "⚠️ Kamu masih punya proses generate yang berjalan!"), alert=True)
+            return
+
+        # data: "wa:method:<pairing|qr>:<zip|json>"
+        _, _, method, fmt = event.data.decode().split(":")
+
+        if method == "pairing" and not settings.wa_pairing_enabled():
+            await event.answer(await tr_block(lang, "❌ Metode Pairing Code sedang dinonaktifkan admin."), alert=True)
+            return
+        if method == "qr" and not settings.wa_qr_enabled():
+            await event.answer(await tr_block(lang, "❌ Metode QR Code sedang dinonaktifkan admin."), alert=True)
+            return
+
         starting = await tr_block(lang, "Memulai proses tautkan WhatsApp...")
         await event.answer(starting)
 
-        # Hapus pesan pilihan format begitu dipilih -- anti-spam, sisa
-        # alur (tanya nomor dst) dikirim sebagai pesan baru oleh
-        # run_generate_whatsapp().
+        # Hapus pesan pilihan metode begitu dipilih -- anti-spam, sisa
+        # alur dikirim sebagai pesan baru oleh run_generate_whatsapp().
         try:
             await event.delete()
         except Exception:
             pass
 
-        task = asyncio.create_task(run_generate_whatsapp(bot, event, lang, fmt))
+        task = asyncio.create_task(run_generate_whatsapp(bot, event, lang, fmt, method))
         state.register_task(user.id, task)
 
 

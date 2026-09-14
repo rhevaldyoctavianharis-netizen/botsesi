@@ -106,6 +106,14 @@ def register(bot):
             settings.set_feature("whatsapp_enabled", not settings.whatsapp_enabled())
             await event.edit(await tr_block(lang, "🔧 **Fitur Generate**"), buttons=await kb.admin_feature_kb(lang))
 
+        elif data == "adm:feat:wapairing":
+            settings.set_feature("wa_pairing_enabled", not settings.wa_pairing_enabled())
+            await event.edit(await tr_block(lang, "🔧 **Fitur Generate**"), buttons=await kb.admin_feature_kb(lang))
+
+        elif data == "adm:feat:waqr":
+            settings.set_feature("wa_qr_enabled", not settings.wa_qr_enabled())
+            await event.edit(await tr_block(lang, "🔧 **Fitur Generate**"), buttons=await kb.admin_feature_kb(lang))
+
         elif data == "adm:msg":
             await event.edit(await tr_block(lang, "📝 **Edit Pesan Bot**"), buttons=await kb.admin_msg_kb(lang))
 

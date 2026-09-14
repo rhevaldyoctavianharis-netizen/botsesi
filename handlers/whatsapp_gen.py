@@ -1,23 +1,26 @@
 """
-handlers/whatsapp_gen.py  (DIUBAH — satu pesan status yang di-edit terus,
-bukan kirim banyak pesan baru, biar chat tidak spam)
-
+handlers/whatsapp_gen.py  (DIUBAH — dukung 2 metode: Pairing Code & QR Code)
 Generate session WhatsApp Multi-Device pakai Baileys (Node.js),
 dipanggil sebagai SUBPROCESS terpisah per user dari whatsapp/pair.js.
 
-Alur (tombol WhatsApp ada di bawah tombol Telethon/Pyrogram, lihat
-utils/keyboards.choose_library_kb):
-1. User klik "🟢 WhatsApp" -> pilih format file (ZIP/JSON) -- pesan
-   pilihan ini DIHAPUS begitu dipilih (lihat handlers/callbacks.py)
-2. Bot tanya nomor WhatsApp -> begitu user balas, pesan pertanyaan itu
-   DIHAPUS dan diganti SATU pesan status "⏳ Memproses..."
-3. Pesan status yang SAMA di-EDIT beberapa kali seiring progres:
-   "⏳ Memproses..." -> "🔗 Kode pairing: xxxxxx" -> "✅ Terkoneksi!"
-   atau "❌ Gagal: <alasan>"
-4. Kalau CONNECTED -> file dikirim sesuai format yang sudah dipilih di
-   langkah 1
+Alur (lihat handlers/callbacks.py untuk urutan tombolnya):
+1. User pilih format file (ZIP/JSON)
+2. User pilih metode: 🔗 Pairing Code (butuh nomor telepon) atau
+   📷 QR Code (scan pakai kamera WhatsApp, tanpa nomor telepon) --
+   tombol yang dinonaktifkan admin otomatis disembunyikan
+3a. PAIRING: bot tanya nomor -> pertanyaan dihapus begitu dijawab,
+    diganti SATU pesan status yang di-edit terus (Memproses -> kode
+    pairing -> Terkoneksi/Gagal)
+3b. QR: tanpa tanya nomor -> begitu QR pertama siap, bot kirim SATU
+    pesan gambar; kalau QR refresh (WhatsApp ganti tiap ~20-60 detik),
+    gambar yang SAMA di-edit (bukan kirim ulang) -> lalu caption-nya
+    diedit jadi Terkoneksi/Gagal
+4. Kalau CONNECTED -> file dikirim sesuai format yang sudah dipilih
 5. Folder sesi SELALU dihapus setelah selesai (berhasil/gagal/timeout/
    dibatalkan) -- file kredensial WhatsApp setara password akun.
+
+Kedua metode berbagi batas waktu yang SAMA: 2 menit (lihat
+PAIRING_TIMEOUT & TIMEOUT_MS di whatsapp/pair.js).
 
 PENTING SOAL TRANSLATE: isi file kredensial (JSON WhatsApp) TIDAK
 PERNAH dilewatkan ke translate -- cuma teks penjelasan yang diterjemahkan.
@@ -29,6 +32,8 @@ ganggu.
 """
 
 import asyncio
+import base64
+import io
 import json
 import os
 import shutil
@@ -48,9 +53,9 @@ SESSIONS_ROOT = os.path.join(BASE_DIR, "data", "wa_sessions")
 PAIRING_TIMEOUT = 130  # detik -- sedikit di atas TIMEOUT_MS (120 detik) di pair.js
 
 
-async def run_generate_whatsapp(bot, event, lang: str = "id", fmt: str = "zip"):
-    """`fmt` sudah dipilih user SEBELUM fungsi ini dipanggil (lihat
-    handlers/callbacks.py: wa_format_cb) -- nilainya "zip" atau "json"."""
+async def run_generate_whatsapp(bot, event, lang: str = "id", fmt: str = "zip", method: str = "pairing"):
+    """`fmt` ("zip"/"json") dan `method` ("pairing"/"qr") sudah dipilih
+    user SEBELUM fungsi ini dipanggil (lihat handlers/callbacks.py)."""
     chat_id = event.chat_id
     os.makedirs(SESSIONS_ROOT, exist_ok=True)
     session_dir = os.path.join(SESSIONS_ROOT, f"{chat_id}_{uuid.uuid4().hex[:8]}")
@@ -59,36 +64,41 @@ async def run_generate_whatsapp(bot, event, lang: str = "id", fmt: str = "zip"):
 
     try:
         async with bot.conversation(chat_id, timeout=CONVERSATION_TIMEOUT) as conv:
-            ask_text = await tr_block(
-                lang,
-                "📱 **Kirim nomor WhatsApp** yang mau ditautkan.\n"
-                "Format: `+62812xxxxxxx` (pakai kode negara)\n\n"
-                "Ketik /cancel untuk membatalkan.",
-            )
-            ask_msg = await conv.send_message(ask_text, buttons=await cancel_kb(lang))
-            resp = await conv.get_response(timeout=CONVERSATION_TIMEOUT)
-            phone = resp.raw_text.strip()
+            phone_arg = "-"
 
-            # Hapus pertanyaan nomor begitu user membalas -- ganti satu
-            # pesan status yang akan di-edit terus-menerus (anti-spam).
-            try:
-                await ask_msg.delete()
-            except Exception:
-                pass
+            if method == "pairing":
+                ask_text = await tr_block(
+                    lang,
+                    "📱 **Kirim nomor WhatsApp** yang mau ditautkan.\n"
+                    "Format: `+62812xxxxxxx` (pakai kode negara)\n\n"
+                    "Ketik /cancel untuk membatalkan.",
+                )
+                ask_msg = await conv.send_message(ask_text, buttons=await cancel_kb(lang))
+                resp = await conv.get_response(timeout=CONVERSATION_TIMEOUT)
+                phone_input = resp.raw_text.strip()
 
-            if phone.lower() in CANCEL_WORDS:
-                raise asyncio.CancelledError()
+                # Hapus pertanyaan nomor begitu user membalas.
+                try:
+                    await ask_msg.delete()
+                except Exception:
+                    pass
 
-            status_msg = await bot.send_message(chat_id, await tr_block(lang, "⏳ Memproses..."))
+                if phone_input.lower() in CANCEL_WORDS:
+                    raise asyncio.CancelledError()
+                phone_arg = phone_input
 
             os.makedirs(session_dir, exist_ok=True)
             proc = await asyncio.create_subprocess_exec(
-                "node", WHATSAPP_SCRIPT, phone, session_dir,
+                "node", WHATSAPP_SCRIPT, method, phone_arg, session_dir,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
 
-            connected, error_msg = await _watch_pairing(status_msg, lang, proc)
+            if method == "qr":
+                connected, error_msg, status_msg = await _watch_pairing_qr(bot, chat_id, lang, proc)
+            else:
+                status_msg = await bot.send_message(chat_id, await tr_block(lang, "⏳ Memproses..."))
+                connected, error_msg = await _watch_pairing_text(status_msg, lang, proc)
 
             if not connected:
                 text = await tr_block(
@@ -96,7 +106,10 @@ async def run_generate_whatsapp(bot, event, lang: str = "id", fmt: str = "zip"):
                     f"❌ Gagal menautkan WhatsApp: {error_msg or 'kesalahan tidak diketahui'}.\n"
                     "Silakan ulangi dari menu.",
                 )
-                await status_msg.edit(text, buttons=await back_to_menu_kb(lang))
+                if status_msg is not None:
+                    await status_msg.edit(text, buttons=await back_to_menu_kb(lang))
+                else:
+                    await bot.send_message(chat_id, text, buttons=await back_to_menu_kb(lang))
                 return
 
             # Jeda kecil supaya file kredensial terakhir selesai ditulis ke disk.
@@ -139,10 +152,9 @@ async def run_generate_whatsapp(bot, event, lang: str = "id", fmt: str = "zip"):
         shutil.rmtree(session_dir, ignore_errors=True)
 
 
-async def _watch_pairing(status_msg, lang, proc):
-    """Baca stdout proses Node baris demi baris, EDIT status_msg yang
-    sama seiring progres (bukan kirim pesan baru), sampai CONNECTED /
-    ERROR / TIMEOUT, atau sampai PAIRING_TIMEOUT detik terlampaui."""
+async def _watch_pairing_text(status_msg, lang, proc):
+    """Mode Pairing Code: EDIT status_msg (teks) yang sama seiring
+    progres, sampai CONNECTED / ERROR / TIMEOUT."""
     connected = False
     error_msg = None
 
@@ -164,7 +176,7 @@ async def _watch_pairing(status_msg, lang, proc):
                         f"`{pairing_code}`\n\n"
                         "Buka WhatsApp di HP kamu:\n"
                         "**Setelan → Perangkat Tertaut → Tautkan dengan nomor telepon**\n"
-                        "lalu masukkan kode di atas secepatnya (berlaku singkat).",
+                        "lalu masukkan kode di atas secepatnya (berlaku singkat, maks. 2 menit).",
                     )
                     await status_msg.edit(msg)
 
@@ -178,17 +190,87 @@ async def _watch_pairing(status_msg, lang, proc):
                     break
 
                 elif text_line == "TIMEOUT":
-                    error_msg = "Waktu pairing habis."
+                    error_msg = "Waktu pairing habis (2 menit)."
                     break
 
                 else:
-                    # Baris log lain dari Baileys yang bukan bagian
-                    # protokol komunikasi kita -- diabaikan.
                     continue
     except (asyncio.TimeoutError, TimeoutError):
-        error_msg = error_msg or "Waktu pairing habis."
+        error_msg = error_msg or "Waktu pairing habis (2 menit)."
 
     return connected, error_msg
+
+
+async def _watch_pairing_qr(bot, chat_id, lang, proc):
+    """Mode QR Code: kirim SATU pesan gambar, lalu EDIT gambar yang
+    SAMA setiap kali QR refresh (bukan kirim ulang pesan baru). Return
+    (connected, error_msg, qr_msg) -- qr_msg dipakai caller untuk
+    lanjut edit status akhir (Terkoneksi/Gagal) & nanti dihapus."""
+    connected = False
+    error_msg = None
+    qr_msg = None
+
+    caption = await tr_block(
+        lang,
+        "📷 **Scan QR Code ini pakai WhatsApp di HP kamu.**\n\n"
+        "Buka WhatsApp: **Setelan → Perangkat Tertaut → Tautkan Perangkat**, "
+        "lalu arahkan kamera ke gambar ini.\n\n"
+        "⏳ Kode ini berlaku maksimal 2 menit dan otomatis diperbarui "
+        "beberapa kali selama menunggu.",
+    )
+
+    try:
+        async with asyncio.timeout(PAIRING_TIMEOUT):
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+                text_line = line.decode(errors="ignore").strip()
+                if not text_line:
+                    continue
+
+                if text_line.startswith("QR:"):
+                    png_bytes = base64.b64decode(text_line.split(":", 1)[1])
+                    file_obj = io.BytesIO(png_bytes)
+                    file_obj.name = "qrcode.png"
+                    if qr_msg is None:
+                        qr_msg = await bot.send_file(
+                            chat_id, file_obj, caption=caption, buttons=await cancel_kb(lang)
+                        )
+                    else:
+                        try:
+                            await qr_msg.edit(file=file_obj)
+                        except Exception:
+                            # Kalau edit gambar gagal (jarang), kirim ulang sebagai
+                            # pesan baru supaya user tetap dapat QR terbaru.
+                            try:
+                                await qr_msg.delete()
+                            except Exception:
+                                pass
+                            qr_msg = await bot.send_file(
+                                chat_id, file_obj, caption=caption, buttons=await cancel_kb(lang)
+                            )
+
+                elif text_line == "CONNECTED":
+                    connected = True
+                    if qr_msg is not None:
+                        await qr_msg.edit(await tr_block(lang, "✅ **Terkoneksi!** Menyiapkan file session..."))
+                    break
+
+                elif text_line.startswith("ERROR:"):
+                    error_msg = text_line.split(":", 1)[1]
+                    break
+
+                elif text_line == "TIMEOUT":
+                    error_msg = "Waktu pairing habis (2 menit)."
+                    break
+
+                else:
+                    continue
+    except (asyncio.TimeoutError, TimeoutError):
+        error_msg = error_msg or "Waktu pairing habis (2 menit)."
+
+    return connected, error_msg, qr_msg
 
 
 async def _deliver_session(bot, chat_id, lang, session_dir, fmt: str, status_msg):
@@ -220,12 +302,13 @@ async def _deliver_session(bot, chat_id, lang, session_dir, fmt: str, status_msg
             pass
 
     # File sudah terkirim sebagai pesan terpisah (attachment) -- hapus
-    # pesan status "Terkoneksi..." supaya tidak nyangkut sebagai pesan
-    # duplikat/basi.
-    try:
-        await status_msg.delete()
-    except Exception:
-        pass
+    # pesan status (teks "Terkoneksi..." atau gambar QR) supaya tidak
+    # nyangkut sebagai pesan duplikat/basi.
+    if status_msg is not None:
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
 
 
 def _combine_session_json(session_dir: str) -> dict:

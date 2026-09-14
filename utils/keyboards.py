@@ -41,14 +41,12 @@ async def main_menu_kb(lang: str = "id", is_admin: bool = False):
     "🛠️ Dashboard Admin" HANYA muncul kalau `is_admin=True`."""
     labels = await tr_many(lang, [
         "🔑 Generate Session Now",
-        "📲 Generate WhatsApp Session",
         "ℹ️ Tentang Bot",
         "🌐 Bahasa",
     ])
-    gen, wa, about, bahasa = labels
+    gen, about, bahasa = labels
     rows = [
         [Button.inline(gen, data="menu:generate")],
-        [Button.inline(wa, data="menu:whatsapp")],
         [Button.inline(about, data="menu:about"), Button.inline(bahasa, data="menu:lang")],
         [Button.url("👤 Owner", f"https://t.me/{OWNER_USERNAME}")],
     ]
@@ -59,15 +57,28 @@ async def main_menu_kb(lang: str = "id", is_admin: bool = False):
 
 
 async def choose_library_kb(lang: str = "id"):
-    """Pilihan library: Telethon / Pyrogram."""
-    labels = await tr_many(lang, ["🟦 Telethon", "🟩 Pyrogram", "⬅️ Kembali"])
-    telethon_label, pyrogram_label, back_label = labels
+    """Pilihan library: Telethon / Pyrogram / WhatsApp."""
+    labels = await tr_many(lang, ["🟦 Telethon", "🟩 Pyrogram", "🟢 WhatsApp", "⬅️ Kembali"])
+    telethon_label, pyrogram_label, whatsapp_label, back_label = labels
     return [
         [
             Button.inline(telethon_label, data="gen:telethon"),
             Button.inline(pyrogram_label, data="gen:pyrogram"),
         ],
+        [Button.inline(whatsapp_label, data="gen:whatsapp")],
         [Button.inline(back_label, data="menu:back")],
+    ]
+
+
+async def whatsapp_format_kb(lang: str = "id"):
+    """Pilihan format file session WhatsApp, ditanyakan SEBELUM mulai
+    pairing (bukan setelah connect) -- lebih cepat & lebih sederhana."""
+    zip_label, json_label, back_label = await tr_many(
+        lang, ["📦 Multi File (ZIP)", "📄 Single File (JSON)", "⬅️ Kembali"]
+    )
+    return [
+        [Button.inline(zip_label, data="wa:format:zip"), Button.inline(json_label, data="wa:format:json")],
+        [Button.inline(back_label, data="menu:generate")],
     ]
 
 

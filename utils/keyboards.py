@@ -82,6 +82,29 @@ async def whatsapp_format_kb(lang: str = "id"):
     ]
 
 
+async def whatsapp_method_kb(lang: str = "id", fmt: str = "zip"):
+    """Pilihan metode tautkan WhatsApp: Pairing Code atau QR Code.
+    Tombol yang dinonaktifkan admin (lihat settings.wa_pairing_enabled /
+    wa_qr_enabled) TIDAK ditampilkan sama sekali."""
+    pairing_on = settings.wa_pairing_enabled()
+    qr_on = settings.wa_qr_enabled()
+
+    row = []
+    if pairing_on:
+        (label,) = await tr_many(lang, ["🔗 Pairing Code"])
+        row.append(Button.inline(label, data=f"wa:method:pairing:{fmt}"))
+    if qr_on:
+        (label,) = await tr_many(lang, ["📷 QR Code"])
+        row.append(Button.inline(label, data=f"wa:method:qr:{fmt}"))
+
+    (back_label,) = await tr_many(lang, ["⬅️ Kembali"])
+    rows = []
+    if row:
+        rows.append(row)
+    rows.append([Button.inline(back_label, data="menu:generate")])
+    return rows
+
+
 async def cancel_kb(lang: str = "id"):
     (label,) = await tr_many(lang, ["❌ Batalkan"])
     return [[Button.inline(label, data="gen:cancel")]]
@@ -166,16 +189,22 @@ async def admin_feature_kb(lang: str = "id"):
     t = settings.telethon_enabled()
     p = settings.pyrogram_enabled()
     w = settings.whatsapp_enabled()
-    t_label, p_label, w_label, back_label = await tr_many(lang, [
+    wp = settings.wa_pairing_enabled()
+    wq = settings.wa_qr_enabled()
+    t_label, p_label, w_label, wp_label, wq_label, back_label = await tr_many(lang, [
         ("✅" if t else "❌") + " Telethon — klik untuk toggle",
         ("✅" if p else "❌") + " Pyrogram — klik untuk toggle",
         ("✅" if w else "❌") + " WhatsApp — klik untuk toggle",
+        ("✅" if wp else "❌") + " ↳ Metode Pairing Code — klik untuk toggle",
+        ("✅" if wq else "❌") + " ↳ Metode QR Code — klik untuk toggle",
         "⬅️ Kembali",
     ])
     return [
         [Button.inline(t_label, data="adm:feat:telethon")],
         [Button.inline(p_label, data="adm:feat:pyrogram")],
         [Button.inline(w_label, data="adm:feat:whatsapp")],
+        [Button.inline(wp_label, data="adm:feat:wapairing")],
+        [Button.inline(wq_label, data="adm:feat:waqr")],
         [Button.inline(back_label, data="adm:back")],
     ]
 

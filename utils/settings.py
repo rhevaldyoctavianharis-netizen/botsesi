@@ -113,6 +113,14 @@ def whatsapp_enabled() -> bool:
     return db.get("whatsapp_enabled", True)
 
 
+def wa_pairing_enabled() -> bool:
+    return db.get("wa_pairing_enabled", True)
+
+
+def wa_qr_enabled() -> bool:
+    return db.get("wa_qr_enabled", True)
+
+
 def set_feature(name: str, value: bool) -> None:
     db.set(name, value)
 

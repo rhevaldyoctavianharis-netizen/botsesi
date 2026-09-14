@@ -26,6 +26,8 @@ _DEFAULT = {
     "telethon_enabled": True,
     "pyrogram_enabled": True,
     "whatsapp_enabled": True,
+    "wa_pairing_enabled": True,
+    "wa_qr_enabled": True,
     "maintenance_mode": False,
     "welcome_text": None,
     "about_text": None,

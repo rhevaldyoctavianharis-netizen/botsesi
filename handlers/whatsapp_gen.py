@@ -1,18 +1,22 @@
 """
-handlers/whatsapp_gen.py  (BARU)
+handlers/whatsapp_gen.py  (DIUBAH — format dipilih di awal, bukan setelah connect)
 Generate session WhatsApp Multi-Device pakai Baileys (Node.js),
 dipanggil sebagai SUBPROCESS terpisah per user dari whatsapp/pair.js.
 
-Alur:
-1. User kirim nomor WhatsApp (dengan kode negara)
-2. Bot spawn `node whatsapp/pair.js <nomor> <folder_sesi_unik>`
-3. Node balikin PAIRING_CODE:xxxxxx lewat stdout -> bot kirim ke user,
+Alur (tombol WhatsApp ada di bawah tombol Telethon/Pyrogram, lihat
+utils/keyboards.choose_library_kb):
+1. User klik "🟢 WhatsApp" -> pilih dulu format file: Multi File (ZIP)
+   atau Single File (JSON) -- lihat handlers/callbacks.py (gen:whatsapp
+   & wa:format:)
+2. User kirim nomor WhatsApp (dengan kode negara)
+3. Bot spawn `node whatsapp/pair.js <nomor> <folder_sesi_unik>`
+4. Node balikin PAIRING_CODE:xxxxxx lewat stdout -> bot kirim ke user,
    minta dimasukkan di WhatsApp: Setelan -> Perangkat Tertaut ->
    Tautkan dengan nomor telepon
-4. Bot tunggu sinyal CONNECTED / ERROR / TIMEOUT dari proses Node
-5. Kalau CONNECTED -> user PILIH SENDIRI lewat tombol: Multi File (ZIP,
-   struktur asli Baileys) atau Single File (satu JSON gabungan)
-6. Folder sesi SELALU dihapus setelah selesai (berhasil/gagal/timeout/
+5. Bot tunggu sinyal CONNECTED / ERROR / TIMEOUT dari proses Node
+6. Kalau CONNECTED -> langsung kirim file sesuai format yang SUDAH
+   dipilih di langkah 1 (tidak tanya lagi)
+7. Folder sesi SELALU dihapus setelah selesai (berhasil/gagal/timeout/
    dibatalkan) -- file kredensial WhatsApp itu setara password akun,
    tidak boleh nyangkut di disk server lebih lama dari perlu.
 
@@ -34,11 +38,9 @@ import shutil
 import uuid
 import zipfile
 
-from telethon import events, Button
-
 from config import CONVERSATION_TIMEOUT
 from utils.keyboards import cancel_kb, back_to_menu_kb
-from utils.i18n import tr_block, tr_many
+from utils.i18n import tr_block
 
 CANCEL_WORDS = {"/cancel", "batal", "cancel"}
 
@@ -47,10 +49,11 @@ WHATSAPP_SCRIPT = os.path.join(BASE_DIR, "whatsapp", "pair.js")
 SESSIONS_ROOT = os.path.join(BASE_DIR, "data", "wa_sessions")
 
 PAIRING_TIMEOUT = 130  # detik -- sedikit di atas TIMEOUT_MS (120 detik) di pair.js
-FORMAT_CHOICE_TIMEOUT = 60  # detik menunggu user pilih tombol format file
 
 
-async def run_generate_whatsapp(bot, event, lang: str = "id"):
+async def run_generate_whatsapp(bot, event, lang: str = "id", fmt: str = "zip"):
+    """`fmt` sudah dipilih user SEBELUM fungsi ini dipanggil (lihat
+    handlers/callbacks.py: wa_format_cb) -- nilainya "zip" atau "json"."""
     chat_id = event.chat_id
     os.makedirs(SESSIONS_ROOT, exist_ok=True)
     session_dir = os.path.join(SESSIONS_ROOT, f"{chat_id}_{uuid.uuid4().hex[:8]}")
@@ -87,7 +90,6 @@ async def run_generate_whatsapp(bot, event, lang: str = "id"):
             # Jeda kecil supaya file kredensial terakhir selesai ditulis ke disk.
             await asyncio.sleep(1)
 
-            fmt = await _ask_format(conv, chat_id, lang)
             await _deliver_session(bot, chat_id, lang, session_dir, fmt)
 
     except asyncio.CancelledError:
@@ -151,6 +153,11 @@ async def _watch_pairing(bot, chat_id, lang, proc):
                 elif text_line == "TIMEOUT":
                     error_msg = "Waktu pairing habis."
                     break
+
+                else:
+                    # Baris log lain dari stderr/stdout Baileys (kalau ada)
+                    # -- diabaikan, bukan bagian dari protokol komunikasi.
+                    continue
     except (asyncio.TimeoutError, TimeoutError):
         error_msg = error_msg or "Waktu pairing habis."
 
@@ -167,27 +174,6 @@ async def _ask(bot, conv, lang, text, buttons=None):
     if resp.raw_text.strip().lower() in CANCEL_WORDS:
         raise asyncio.CancelledError()
     return resp.raw_text.strip()
-
-
-async def _ask_format(conv, chat_id, lang):
-    """Tampilkan tombol pilihan format file, tunggu user KLIK salah
-    satu (bukan ketik teks) -- pakai conv.wait_event() supaya tetap
-    dalam scope percakapan yang sama."""
-    zip_label, json_label = await tr_many(lang, ["📦 Multi File (ZIP)", "📄 Single File (JSON)"])
-    await conv.send_message(
-        await tr_block(lang, "✅ **WhatsApp berhasil ditautkan!**\n\nPilih format file session yang kamu mau:"),
-        buttons=[[Button.inline(zip_label, data="wa:zip"), Button.inline(json_label, data="wa:json")]],
-    )
-    try:
-        resp = await conv.wait_event(
-            events.CallbackQuery(pattern=b"wa:(zip|json)", chats=chat_id),
-            timeout=FORMAT_CHOICE_TIMEOUT,
-        )
-    except asyncio.TimeoutError:
-        # Default aman kalau user tidak pilih dalam waktu -> Multi File (ZIP).
-        return "zip"
-    await resp.answer()
-    return resp.data.decode().split(":")[-1]
 
 
 async def _deliver_session(bot, chat_id, lang, session_dir, fmt: str):
@@ -246,3 +232,4 @@ def _zip_session_dir(session_dir: str, out_path: str) -> None:
         for fname in os.listdir(session_dir):
             if fname.endswith(".json"):
                 zf.write(os.path.join(session_dir, fname), arcname=fname)
+

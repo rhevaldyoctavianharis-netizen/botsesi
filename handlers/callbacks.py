@@ -10,7 +10,7 @@ import asyncio
 
 from telethon import events
 
-from utils.keyboards import choose_library_kb, back_to_menu_kb, join_channel_kb
+from utils.keyboards import choose_library_kb, back_to_menu_kb, join_channel_kb, whatsapp_format_kb
 from utils.force_join import get_unjoined_channels
 from utils import state, settings
 from utils.i18n import tr_block
@@ -80,8 +80,28 @@ def register(bot):
         else:
             await event.answer(await tr_block(lang, "Tidak ada proses yang berjalan."))
 
-    @bot.on(events.CallbackQuery(pattern=b"menu:whatsapp"))
-    async def whatsapp_menu_cb(event):
+    @bot.on(events.CallbackQuery(pattern=b"gen:whatsapp"))
+    async def gen_whatsapp_cb(event):
+        user = await event.get_sender()
+        lang = settings.get_user_language(user.id)
+
+        if not settings.whatsapp_enabled():
+            await event.answer(await tr_block(lang, "❌ Fitur WhatsApp sedang dinonaktifkan admin."), alert=True)
+            return
+
+        if state.is_busy(user.id):
+            await event.answer(await tr_block(lang, "⚠️ Kamu masih punya proses generate yang berjalan!"), alert=True)
+            return
+
+        text = await tr_block(
+            lang,
+            "📲 **Generate Session WhatsApp**\n\n"
+            "Pilih format file session yang kamu mau SEBELUM mulai tautkan perangkat:",
+        )
+        await event.edit(text, buttons=await whatsapp_format_kb(lang))
+
+    @bot.on(events.CallbackQuery(pattern=b"wa:format:"))
+    async def wa_format_cb(event):
         user = await event.get_sender()
         lang = settings.get_user_language(user.id)
 
@@ -96,18 +116,16 @@ def register(bot):
             await event.edit(text, buttons=await join_channel_kb(unjoined, lang))
             return
 
-        if not settings.whatsapp_enabled():
-            await event.answer(await tr_block(lang, "❌ Fitur WhatsApp sedang dinonaktifkan admin."), alert=True)
-            return
-
         if state.is_busy(user.id):
             await event.answer(await tr_block(lang, "⚠️ Kamu masih punya proses generate yang berjalan!"), alert=True)
             return
 
+        fmt = event.data.decode().split(":")[-1]  # "zip" atau "json"
+
         starting = await tr_block(lang, "Memulai proses tautkan WhatsApp...")
         await event.answer(starting)
 
-        task = asyncio.create_task(run_generate_whatsapp(bot, event, lang))
+        task = asyncio.create_task(run_generate_whatsapp(bot, event, lang, fmt))
         state.register_task(user.id, task)
 
 

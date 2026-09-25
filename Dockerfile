@@ -33,8 +33,14 @@ RUN cd whatsapp && npm install --omit=dev
 # ---- Copy seluruh source code ----
 COPY . .
 
+# ---- Siapkan entrypoint yang menjalankan DUA bot (main.py + cpm1.py) ----
+# sekaligus dalam satu container, supaya tidak perlu bikin service Render
+# kedua (hemat resource/plan).
+RUN chmod +x entrypoint.sh
+
 ENV PYTHONUNBUFFERED=1
 
 # Render.com otomatis mengisi $PORT dan meneruskannya ke container ini;
-# keep_alive.py sudah baca dari environment variable tersebut.
-CMD ["python", "main.py"]
+# keep_alive.py sudah baca dari environment variable tersebut (dipakai
+# oleh main.py saja -- cpm1.py TIDAK boleh bind ke $PORT yang sama).
+CMD ["./entrypoint.sh"]

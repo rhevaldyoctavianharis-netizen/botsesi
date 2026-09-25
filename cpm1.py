@@ -19,7 +19,7 @@ API_ID = os.getenv("API_ID", "")
 API_HASH = os.getenv("API_HASH", "")
 BOT_TOKEN = "8408159368:AAHb9HPJapiC5qW1k4b2O1gW1osXFJGondY"
 
-ADMIN_IDS = os.getenv("ADMIN_IDS", "")
+ADMIN_IDS = set(int(x.strip()) for x in os.getenv("ADMIN_IDS", "").split(",") if x.strip())
 
 NEW_USER_COINS = 5
 COIN_PER_INJECT = 1

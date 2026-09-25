@@ -5,6 +5,7 @@ import json
 import random
 import string
 import sqlite3
+import time
 import requests
 from datetime import datetime
 from telethon import TelegramClient, events, Button
@@ -239,6 +240,7 @@ def cpm_set_rank(token, real_estate_value=REAL_ESTATE_VALUE):
 # ==================== STATE ====================
 user_states = {}
 admin_states = {}
+_start_lock = {}   # {uid: timestamp_terakhir /start}
 
 
 # ==================== HELPERS ====================
@@ -269,6 +271,9 @@ def can_inject(uid):
       13=today_date, 14=note, 15=joined_at
     """
     u = get_user(uid)
+    if not u:
+        return False, "User tidak ditemukan."
+
     today = datetime.now().strftime("%Y-%m-%d")
 
     # Reset counter kalau ganti hari
@@ -316,6 +321,8 @@ def back_button(target=b"menu_main"):
 
 def build_main_caption(uid):
     u = get_user(uid)
+    if not u:
+        return "👑 **ᴄᴘᴍ ᴋɪɴɢ ʀᴀɴᴋ ʙᴏᴛ** 👑"
     return (
         f"👑 **ᴄᴘᴍ ᴋɪɴɢ ʀᴀɴᴋ ʙᴏᴛ** 👑\n\n"
         f"👋 Halo, {u[1] or 'User'}!\n\n"
@@ -363,20 +370,37 @@ client.flood_sleep_threshold = 60
 
 
 async def edit_menu(chat_id, msg_id, caption, buttons):
-    try:
-        await client.edit_message(chat_id, msg_id, caption, buttons=buttons)
-        return msg_id
-    except Exception:
+    """Edit pesan lama, kalau gagal fallback ke kirim baru."""
+    # Coba edit dulu
+    if msg_id:
+        try:
+            await client.edit_message(chat_id, msg_id, caption, buttons=buttons)
+            return msg_id
+        except Exception as e:
+            print(f"[edit_menu] edit gagal ({e}), fallback delete+send")
+
+    # Fallback: hapus pesan lama
+    if msg_id:
         try:
             await client.delete_messages(chat_id, msg_id)
         except Exception:
             pass
-        try:
-            m = await client.send_file(chat_id, get_setting("thumbnail_url"),
-                                       caption=caption, buttons=buttons)
-        except Exception:
-            m = await client.send_message(chat_id, caption, buttons=buttons)
+
+    # Coba kirim sebagai foto
+    try:
+        m = await client.send_file(chat_id, get_setting("thumbnail_url"),
+                                   caption=caption, buttons=buttons)
         return m.id
+    except Exception as e:
+        print(f"[edit_menu] send_file gagal ({e}), fallback text")
+
+    # Fallback terakhir: kirim teks polos
+    try:
+        m = await client.send_message(chat_id, caption, buttons=buttons)
+        return m.id
+    except Exception as e:
+        print(f"[edit_menu] send_message JUGAL GAGAL: {e}")
+        return None
 
 
 async def send_main_menu(chat_id, uid, delete_msg_id=None):
@@ -385,16 +409,27 @@ async def send_main_menu(chat_id, uid, delete_msg_id=None):
             await client.delete_messages(chat_id, delete_msg_id)
         except Exception:
             pass
+
+    caption = build_main_caption(uid)
+    buttons = main_menu_buttons(is_admin(uid))
+
+    sent = None
     try:
-        m = await client.send_file(chat_id, get_setting("thumbnail_url"),
-                                   caption=build_main_caption(uid),
-                                   buttons=main_menu_buttons(is_admin(uid)))
-    except Exception:
-        m = await client.send_message(chat_id, build_main_caption(uid),
-                                      buttons=main_menu_buttons(is_admin(uid)))
-    user_states.setdefault(uid, {})["menu_msg"] = m.id
-    user_states[uid]["state"] = "main"
-    return m.id
+        sent = await client.send_file(chat_id, get_setting("thumbnail_url"),
+                                      caption=caption, buttons=buttons)
+    except Exception as e1:
+        print(f"[send_main_menu] send_file gagal: {e1}")
+        try:
+            sent = await client.send_message(chat_id, caption, buttons=buttons)
+        except Exception as e2:
+            print(f"[send_main_menu] send_message juga gagal: {e2}")
+            return None
+
+    if sent:
+        user_states.setdefault(uid, {})["menu_msg"] = sent.id
+        user_states[uid]["state"] = "main"
+        return sent.id
+    return None
 
 
 def get_menu_msg(uid):
@@ -405,63 +440,86 @@ def get_menu_msg(uid):
 @client.on(events.NewMessage(pattern="/start"))
 async def cmd_start(event):
     uid = event.sender_id
-    username = event.sender.username or event.sender.first_name or ""
 
-    args = event.text.split()
-    referred_by = None
-    if len(args) > 1 and args[1].startswith("ref_"):
+    # Guard: cegah double /start dalam 2 detik
+    now = time.time()
+    if uid in _start_lock and now - _start_lock[uid] < 2:
         try:
-            code = args[1][4:]
-            ref_row = db_fetch("SELECT user_id FROM users WHERE referral_code=?", (code,))
-            if ref_row and ref_row[0] != uid:
-                referred_by = ref_row[0]
+            await event.delete()
         except Exception:
             pass
-
-    ensure_user(uid, username, referred_by)
+        return
+    _start_lock[uid] = now
 
     try:
-        await event.delete()
-    except Exception:
-        pass
+        username = event.sender.username or event.sender.first_name or ""
 
-    if is_banned(uid):
-        try:
-            await event.respond("🚫 Anda diblokir dari bot ini.")
-        except Exception:
-            pass
-        return
-
-    if get_setting("maintenance") == "1" and not is_admin(uid):
-        try:
-            await event.respond("🔧 **Bot sedang maintenance.**\n\nCoba lagi nanti.")
-        except Exception:
-            pass
-        return
-
-    if get_setting("force_join") == "1" and not is_admin(uid):
-        if not await is_joined(uid):
-            buttons = [
-                [Button.url("📢 ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ", get_setting("sponsor_link"))],
-                [Button.inline("✅ ꜱᴜᴅᴀʜ ᴊᴏɪɴ", b"check_join")],
-            ]
+        args = event.text.split()
+        referred_by = None
+        if len(args) > 1 and args[1].startswith("ref_"):
             try:
-                await client.send_file(
-                    event.chat_id, get_setting("thumbnail_url"),
-                    caption="🔒 **Anda harus join channel sponsor dulu** untuk pakai bot.",
-                    buttons=buttons)
+                code = args[1][4:]
+                ref_row = db_fetch("SELECT user_id FROM users WHERE referral_code=?", (code,))
+                if ref_row and ref_row[0] != uid:
+                    referred_by = ref_row[0]
             except Exception:
-                await event.respond("🔒 Join channel sponsor dulu.", buttons=buttons)
+                pass
+
+        ensure_user(uid, username, referred_by)
+
+        try:
+            await event.delete()
+        except Exception:
+            pass
+
+        if is_banned(uid):
+            try:
+                await event.respond("🚫 Anda diblokir dari bot ini.")
+            except Exception:
+                pass
             return
 
-    old = get_menu_msg(uid)
-    if old:
+        if get_setting("maintenance") == "1" and not is_admin(uid):
+            try:
+                await event.respond("🔧 **Bot sedang maintenance.**\n\nCoba lagi nanti.")
+            except Exception:
+                pass
+            return
+
+        if get_setting("force_join") == "1" and not is_admin(uid):
+            if not await is_joined(uid):
+                buttons = [
+                    [Button.url("📢 ᴊᴏɪɴ ᴄʜᴀɴɴᴇʟ", get_setting("sponsor_link"))],
+                    [Button.inline("✅ ꜱᴜᴅᴀʜ ᴊᴏɪɴ", b"check_join")],
+                ]
+                try:
+                    await client.send_file(
+                        event.chat_id, get_setting("thumbnail_url"),
+                        caption="🔒 **Anda harus join channel sponsor dulu** untuk pakai bot.",
+                        buttons=buttons)
+                except Exception:
+                    await event.respond("🔒 Join channel sponsor dulu.", buttons=buttons)
+                return
+
+        old = get_menu_msg(uid)
+        if old:
+            try:
+                await client.delete_messages(event.chat_id, old)
+            except Exception:
+                pass
+
+        await send_main_menu(event.chat_id, uid)
+
+    except Exception as e:
+        import traceback
+        print("=" * 50)
+        print("❌ ERROR di cmd_start:")
+        traceback.print_exc()
+        print("=" * 50)
         try:
-            await client.delete_messages(event.chat_id, old)
+            await client.send_message(event.chat_id, f"❌ Error: `{str(e)[:200]}`")
         except Exception:
             pass
-
-    await send_main_menu(event.chat_id, uid)
 
 
 @client.on(events.NewMessage(pattern="/cancel"))
@@ -487,12 +545,15 @@ async def callback_handler(event):
     try:
         await _handle_callback(event)
     except Exception as e:
+        import traceback
+        print("=" * 50)
+        print("❌ ERROR di callback_handler:")
+        traceback.print_exc()
+        print("=" * 50)
         try:
             await event.answer(f"❌ Error: {str(e)[:180]}", alert=True)
         except Exception:
             pass
-        import traceback
-        traceback.print_exc()
 
 
 async def _handle_callback(event):
@@ -512,7 +573,11 @@ async def _handle_callback(event):
 
     if data == "check_join":
         if await is_joined(uid):
-            await event.delete()
+            try:
+                await event.delete()
+            except Exception:
+                pass
+            await asyncio.sleep(0.3)
             await send_main_menu(event.chat_id, uid)
         else:
             await event.answer("❌ Belum join channel.", alert=True)
@@ -900,6 +965,25 @@ async def handle_admin_callback(uid, chat_id, msg_id, data):
 # ==================== TEXT HANDLER ====================
 @client.on(events.NewMessage())
 async def text_handler(event):
+    try:
+        await _text_handler_inner(event)
+    except Exception as e:
+        import traceback
+        print("=" * 50)
+        print("❌ ERROR di text_handler:")
+        traceback.print_exc()
+        print("=" * 50)
+        try:
+            await client.send_message(
+                event.chat_id,
+                f"❌ **Terjadi error internal:**\n`{str(e)[:300]}`\n\n"
+                f"Coba /cancel lalu ulangi."
+            )
+        except Exception:
+            pass
+
+
+async def _text_handler_inner(event):
     if event.text and event.text.startswith("/"):
         return
 
@@ -924,7 +1008,7 @@ async def text_handler(event):
                 await event.delete()
             except Exception:
                 pass
-            user_states[uid]["data"]["email"] = text
+            user_states[uid].setdefault("data", {})["email"] = text
             user_states[uid]["state"] = "await_password"
             await edit_menu(chat_id, menu_msg,
                 "🔒 **Masukkan password:**\n\n_/cancel untuk batal_", back_button())
@@ -937,39 +1021,90 @@ async def text_handler(event):
             except Exception:
                 pass
 
-            email = user_states[uid]["data"].get("email")
+            # Validasi state
+            email = user_states[uid].get("data", {}).get("email", "")
+            if not email:
+                await edit_menu(chat_id, menu_msg,
+                    "❌ **Sesi habis.** Klik Inject Rank lagi.", back_button())
+                user_states[uid]["state"] = "main"
+                return
+
             user = get_user(uid)
-            ok, reason = can_inject(uid)
-            if not ok:
-                await edit_menu(chat_id, menu_msg, f"⏳ {reason}", back_button())
-                user_states[uid]["state"] = "main"
-                return
+            if not user:
+                ensure_user(uid, "")
+                user = get_user(uid)
 
+            # Cek coin
             if user[2] < COIN_PER_INJECT:
-                await edit_menu(chat_id, menu_msg, "❌ Coin tidak cukup.", back_button())
+                await edit_menu(chat_id, menu_msg,
+                    "❌ **Coin tidak cukup.**", back_button())
                 user_states[uid]["state"] = "main"
                 return
 
-            await edit_menu(chat_id, menu_msg, "⏳ **Memproses...**", [])
+            # Cek cooldown & limit
+            try:
+                ok, reason = can_inject(uid)
+            except Exception as e:
+                ok, reason = False, f"Cek limit gagal: {e}"
 
+            if not ok:
+                await edit_menu(chat_id, menu_msg, f"⏳ **{reason}**", back_button())
+                user_states[uid]["state"] = "main"
+                return
+
+            # Set state processing supaya tidak dobel-proses kalau user spam
+            user_states[uid]["state"] = "processing"
+
+            # Tampilkan "Memproses..." — simpan msg id baru
+            try:
+                new_id = await edit_menu(chat_id, menu_msg,
+                                         "⏳ **Memproses...**\n\n_Mohon tunggu..._", [])
+                user_states[uid]["menu_msg"] = new_id
+            except Exception as e:
+                print(f"[inject] edit 'Memproses' gagal: {e}")
+                new_id = menu_msg
+
+            # ===== LOGIN CPM (dengan timeout) =====
             loop = asyncio.get_event_loop()
-            token, err = await loop.run_in_executor(None, cpm_login, email, password)
+            try:
+                token, err = await asyncio.wait_for(
+                    loop.run_in_executor(None, cpm_login, email, password),
+                    timeout=30,
+                )
+            except asyncio.TimeoutError:
+                token, err = None, "Timeout saat login (30 detik)"
+            except Exception as e:
+                token, err = None, f"Login error: {e}"
+
             if not token:
-                await edit_menu(chat_id, menu_msg, f"❌ Login gagal:\n`{err}`", back_button())
                 add_inject_history(uid, email, "fail")
+                await edit_menu(chat_id, new_id,
+                    f"❌ **Login gagal:**\n`{err}`\n\n"
+                    f"Periksa email/password CPM Anda.", back_button())
                 user_states[uid]["state"] = "main"
                 return
 
-            success, info = await loop.run_in_executor(
-                None, cpm_set_rank, token, REAL_ESTATE_VALUE)
+            # ===== SET RANK (dengan timeout) =====
+            try:
+                success, info = await asyncio.wait_for(
+                    loop.run_in_executor(None, cpm_set_rank, token, REAL_ESTATE_VALUE),
+                    timeout=30,
+                )
+            except asyncio.TimeoutError:
+                success, info = False, "Timeout saat set rank (30 detik)"
+            except Exception as e:
+                success, info = False, f"Set rank error: {e}"
 
             if success:
                 new_coins = user[2] - COIN_PER_INJECT
                 new_inject = user[4] + 1
-                update_user(uid, coins=new_coins, total_inject=new_inject,
-                            last_inject=datetime.now().isoformat(),
-                            today_inject=(user[12] or 0) + 1,
-                            today_date=datetime.now().strftime("%Y-%m-%d"))
+                try:
+                    update_user(uid, coins=new_coins, total_inject=new_inject,
+                                last_inject=datetime.now().isoformat(),
+                                today_inject=(user[12] or 0) + 1,
+                                today_date=datetime.now().strftime("%Y-%m-%d"))
+                except Exception as e:
+                    print(f"[inject] update_user gagal: {e}")
                 add_inject_history(uid, email, "success")
                 caption = (
                     f"✅ **ɪɴᴊᴇᴄᴛ ʙᴇʀʜᴀꜱɪʟ!**\n\n"
@@ -978,10 +1113,11 @@ async def text_handler(event):
                     f"🎯 Total Inject: **{new_inject}**\n"
                     f"💰 Sisa Coin: **{new_coins}**"
                 )
-                await edit_menu(chat_id, menu_msg, caption, back_button())
+                await edit_menu(chat_id, new_id, caption, back_button())
             else:
                 add_inject_history(uid, email, "fail")
-                await edit_menu(chat_id, menu_msg, f"❌ Gagal:\n`{info}`", back_button())
+                await edit_menu(chat_id, new_id,
+                    f"❌ **Gagal inject:**\n`{info}`", back_button())
 
             user_states[uid]["state"] = "main"
             return
@@ -1001,7 +1137,7 @@ async def text_handler(event):
                 user_states[uid]["state"] = "main"
                 return
 
-            user_states[uid]["data"]["amount"] = amount
+            user_states[uid].setdefault("data", {})["amount"] = amount
             user_states[uid]["state"] = "await_topup_proof"
             await edit_menu(chat_id, menu_msg,
                 f"💰 Jumlah: **{amount} coin**\n\n"
@@ -1011,7 +1147,7 @@ async def text_handler(event):
 
         elif state == "await_topup_proof":
             proof = "image" if event.photo else text
-            amount = user_states[uid]["data"].get("amount", 0)
+            amount = user_states[uid].get("data", {}).get("amount", 0)
             db_exec(
                 "INSERT INTO topup_requests (user_id, amount, price, proof, status, timestamp) "
                 "VALUES (?,?,?,?,?,?)",

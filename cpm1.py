@@ -28,11 +28,14 @@ REFERRAL_REWARD = 1
 INJECT_COOLDOWN = 60
 MAX_INJECT_PER_DAY = 20
 
+NEW_THUMB = "https://raw.githubusercontent.com/rhevaldyoctavianharis-netizen/botsesi/refs/heads/main/assets/thumb.jpg"
+OLD_THUMB = "https://i.imgur.com/8Q0yqXx.jpg"
+
 DEFAULT_SETTINGS = {
     "sponsor_channel": "@sponsorchannel",
     "sponsor_link": "https://t.me/sponsorchannel",
     "admin_contact": "@adminusername",
-    "thumbnail_url": "https://i.imgur.com/8Q0yqXx.jpg",
+    "thumbnail_url": NEW_THUMB,
     "maintenance": "0",
     "force_join": "1",
 }
@@ -124,6 +127,11 @@ def init_db():
     )""")
     for k, v in DEFAULT_SETTINGS.items():
         db_exec("INSERT OR IGNORE INTO settings (key, value) VALUES (?,?)", (k, str(v)))
+
+    # Auto-migrasi thumbnail lama → baru
+    row = db_fetch("SELECT value FROM settings WHERE key='thumbnail_url'")
+    if row and row[0] == OLD_THUMB:
+        set_setting("thumbnail_url", NEW_THUMB)
 
 
 def gen_ref_code():
@@ -253,21 +261,35 @@ async def is_joined(uid):
 
 
 def can_inject(uid):
+    """
+    Index kolom tabel users:
+      0=user_id, 1=username, 2=coins, 3=banned, 4=total_inject,
+      5=sponsor_claimed, 6=referral_code, 7=referred_by, 8=referral_count,
+      9=daily_streak, 10=last_daily, 11=last_inject, 12=today_inject,
+      13=today_date, 14=note, 15=joined_at
+    """
     u = get_user(uid)
     today = datetime.now().strftime("%Y-%m-%d")
-    if u[12] != today:
+
+    # Reset counter kalau ganti hari
+    if (u[13] or "") != today:
         update_user(uid, today_inject=0, today_date=today)
         u = get_user(uid)
-    if u[11] >= MAX_INJECT_PER_DAY:
+
+    # Cek limit harian (u[12] = today_inject)
+    if (u[12] or 0) >= MAX_INJECT_PER_DAY:
         return False, f"Limit harian tercapai ({MAX_INJECT_PER_DAY}/hari)."
-    if u[10]:
+
+    # Cek cooldown (u[11] = last_inject)
+    if u[11]:
         try:
-            last = datetime.fromisoformat(u[10])
+            last = datetime.fromisoformat(u[11])
             diff = (datetime.now() - last).total_seconds()
             if diff < INJECT_COOLDOWN:
                 return False, f"Tunggu {int(INJECT_COOLDOWN - diff)}s lagi."
         except Exception:
             pass
+
     return True, ""
 
 
@@ -462,6 +484,18 @@ async def cmd_cancel(event):
 # ==================== CALLBACK ====================
 @client.on(events.CallbackQuery())
 async def callback_handler(event):
+    try:
+        await _handle_callback(event)
+    except Exception as e:
+        try:
+            await event.answer(f"❌ Error: {str(e)[:180]}", alert=True)
+        except Exception:
+            pass
+        import traceback
+        traceback.print_exc()
+
+
+async def _handle_callback(event):
     uid = event.sender_id
     data = event.data.decode() if isinstance(event.data, bytes) else event.data
 
@@ -522,7 +556,7 @@ async def callback_handler(event):
             f"💰 Coin: **{user[2]}**\n"
             f"🎯 Total Inject: **{user[4]}**\n"
             f"👥 Referral: **{user[8]}**\n"
-            f"📅 Join: {user[15][:10]}\n"
+            f"📅 Join: {user[15][:10] if user[15] else '-'}\n"
             + (f"📝 Note: _{user[14]}_\n" if user[14] else "")
         )
         await edit_menu(event.chat_id, menu_msg, caption, back_button())
@@ -883,7 +917,7 @@ async def text_handler(event):
     if uid in user_states:
         state = user_states[uid].get("state")
         menu_msg = user_states[uid].get("menu_msg")
-        text = event.text.strip()
+        text = (event.text or "").strip()
 
         if state == "await_email":
             try:
@@ -934,7 +968,7 @@ async def text_handler(event):
                 new_inject = user[4] + 1
                 update_user(uid, coins=new_coins, total_inject=new_inject,
                             last_inject=datetime.now().isoformat(),
-                            today_inject=user[11] + 1,
+                            today_inject=(user[12] or 0) + 1,
                             today_date=datetime.now().strftime("%Y-%m-%d"))
                 add_inject_history(uid, email, "success")
                 caption = (
@@ -1011,7 +1045,7 @@ async def text_handler(event):
     if is_admin(uid) and uid in admin_states:
         state = admin_states[uid].get("state")
         menu_msg = admin_states[uid].get("menu_msg") or get_menu_msg(uid)
-        text = event.text.strip()
+        text = (event.text or "").strip()
 
         try:
             await event.delete()
